@@ -1,26 +1,26 @@
 # ForensicBackupScan.ps1
-
+<div align="center">
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue?logo=powershell)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey?logo=windows)
 ![License](https://img.shields.io/badge/License-Authorized%20Use%20Only-orange)
 ![Status](https://img.shields.io/badge/Status-Stable-success)
-
+</div>
 ## 📌 Overview
 
-**ForensicBackupScan.ps1** is a Windows PowerShell script designed for **authorized forensic scans** and **security investigations**. It’s here to help you uncover backups, hidden files, remote access traces, and unusual logins — so you can act fast and stay safe.
+**ForensicBackupScan.ps1** is a Windows PowerShell script built for **authorized forensic scans** and **security investigations**. It helps you quickly spot backups, hidden files, remote access traces, and unusual logins so you can respond effectively.
 
-We believe in keeping our work **ethical** and **positive** — let’s always stay on the right side, with good spirit and good intentions.
+We believe in working **ethically** and **positively**. Let’s stay on the right side of cybersecurity, keeping good intentions and good energy.
 
 ---
 
-## ✨ What It Does
+## ✨ Key Capabilities
 
-* **Finds Backup Files** – visible, hidden, or even with Alternate Data Streams (ADS)
-* **Lists Installed Backup/Sync Software**
-* **Checks for Shadow Copies**
-* **Analyzes Logons** – highlights unusual activity and brute-force attempts
-* **Extracts Remote Access Traces** – AnyDesk & TeamViewer logs
-* **Generates Full Reports** – CSV and TXT, saved neatly to your Desktop
+* **Backup Detection**: Finds backup-like files (visible, hidden, or in Alternate Data Streams)
+* **Software Inventory**: Lists installed backup/sync/cloud software
+* **Shadow Copy Checks**: Detects and lists shadow copies
+* **Logon Analysis**: Highlights unusual login activity and brute-force attempts
+* **Remote Access Traces**: Extracts recent logs from AnyDesk and TeamViewer
+* **Comprehensive Reports**: Generates organized CSV and TXT outputs on your Desktop
 
 ---
 
@@ -28,8 +28,8 @@ We believe in keeping our work **ethical** and **positive** — let’s always s
 
 * Windows 10/11 or Windows Server 2016+
 * PowerShell 5.1+ or PowerShell Core
-* Administrator rights
-* Execution Policy:
+* Administrator privileges
+* Execution Policy adjustment:
 
   ```powershell
   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -37,16 +37,16 @@ We believe in keeping our work **ethical** and **positive** — let’s always s
 
 ---
 
-## 🚀 How to Use
+## 🚀 Usage Instructions
 
 1. Download or clone this repository.
 2. Open PowerShell as Administrator.
-3. Navigate to the script folder:
+3. Navigate to the script location:
 
    ```powershell
    cd "C:\Path\To\Script"
    ```
-4. Run it:
+4. Run the script:
 
    ```powershell
    .\ForensicBackupScan.ps1 -LookbackDays 14 -MinSizeMB 30 -Drives C:\,D:\ -TopNRecent 80
@@ -54,41 +54,41 @@ We believe in keeping our work **ethical** and **positive** — let’s always s
 
 **Parameters:**
 
-| Name            | Purpose                                                   |
-| --------------- | --------------------------------------------------------- |
-| `-LookbackDays` | Days back to check event logs (default: 30)               |
-| `-MinSizeMB`    | Minimum file size to consider (default: 20MB)             |
-| `-Drives`       | Drives to scan (default: C:, D:, E:)                      |
-| `-TopNRecent`   | How many recent results to show in summary (default: 100) |
+| Name            | Description                                             |
+| --------------- | ------------------------------------------------------- |
+| `-LookbackDays` | Days back to review event logs (default: 30)            |
+| `-MinSizeMB`    | Minimum file size for backup candidates (default: 20MB) |
+| `-Drives`       | Drives to scan (default: C:, D:, E:)                    |
+| `-TopNRecent`   | Number of most recent results in summary (default: 100) |
 
 ---
 
-## 📂 Output
+## 📂 Output Structure
 
-Creates a folder on your Desktop like:
+The script creates a folder on your Desktop:
 
 ```
 ForensicReport_YYYYMMDD_HHMMSS
 ```
 
-Inside:
+Inside you will find:
 
 * `Report.txt` – Main summary
 * `backup_candidates.csv` – Backup files found
 * `hidden_suspicious.csv` – Hidden/system suspicious files
-* `ads_streams.csv` – Alternate Data Streams
+* `ads_streams.csv` – Alternate Data Streams found
 * `scheduled_tasks.csv` – Suspicious scheduled tasks
 * `services_suspect.csv` – Suspicious services
-* `logons_success.csv` – Successful logons
-* `logons_failed.csv` – Failed logons
-* `logons_lockouts.csv` – Lockouts
-* `bruteforce_indicators.csv` – Brute-force patterns
-* `anydesk_tail.txt` – Last AnyDesk log lines
-* `teamviewer_tail.txt` – Last TeamViewer log lines
+* `logons_success.csv` – Successful logon events
+* `logons_failed.csv` – Failed logon events
+* `logons_lockouts.csv` – Account lockouts
+* `bruteforce_indicators.csv` – Brute-force attempt patterns
+* `anydesk_tail.txt` – Last 200 lines from AnyDesk logs
+* `teamviewer_tail.txt` – Last 200 lines from TeamViewer logs
 
 ---
 
-## 🔍 Example Output
+## 🔍 Example Report Snippet
 
 ```
 === Forensic Backup & Access Scan ===
@@ -104,9 +104,12 @@ Found 32 candidate files. Top 5 most recent:
 
 ---
 
-## ⚠️ Stay Ethical
+## ⚠️ Ethical Use Statement
 
-Use this tool **only** when you have proper permission. Keep it clean, keep it legal, and keep the good energy.
+Use this tool only when you have explicit permission. Keep your work clean, legal, and in the spirit of positive cybersecurity.
 
-**Created by:** Eliran Loai Deeb
-[LinkedIn](https://www.linkedin.com/in/loai-deeb/)
+---
+
+## 👤 Credits
+Created by **Eliran Loai Deeb**
+[LinkedIn Profile](https://www.linkedin.com/in/loai-deeb/)
