@@ -1,0 +1,362 @@
+<#
+ForensicBackupScan.ps1
+Author: Eliran Loai Deeb PT mentor
+Purpose:
+  Discover backup artifacts (including hidden/ADS), installed backup/sync software,
+  shadow copies, unusual logons (success/fail, brute-force indicators),
+  and remote-access traces (AnyDesk/TeamViewer).
+
+Usage example:
+  Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+  .\ForensicBackupScan.ps1 -LookbackDays 14 -MinSizeMB 30 -Drives C:\,D:\ -TopNRecent 80
+#>
+
+[CmdletBinding()]
+param(
+    [int]$LookbackDays = 30,             # Log lookback period (days)
+    [int]$MinSizeMB    = 20,             # Minimum file size (MB) for backup candidates
+    [string[]]$Drives  = @("C:\","D:\","E:\"),  # Drives to scan
+    [int]$TopNRecent   = 100             # How many most-recent items to summarize
+)
+
+# ------------------------------ Init ------------------------------------------
+$ts      = Get-Date -Format "yyyyMMdd_HHmmss"
+$Desktop = [Environment]::GetFolderPath("Desktop")
+$OutDir  = Join-Path $Desktop ("ForensicReport_" + $ts)
+New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+
+$ReportTxt  = Join-Path $OutDir "Report.txt"
+$CsvBackups = Join-Path $OutDir "backup_candidates.csv"
+$CsvHidden  = Join-Path $OutDir "hidden_suspicious.csv"
+$CsvADS     = Join-Path $OutDir "ads_streams.csv"
+$CsvTasks   = Join-Path $OutDir "scheduled_tasks.csv"
+$CsvSvcs    = Join-Path $OutDir "services_suspect.csv"
+$CsvLogonsS = Join-Path $OutDir "logons_success.csv"
+$CsvLogonsF = Join-Path $OutDir "logons_failed.csv"
+$CsvLockout = Join-Path $OutDir "logons_lockouts.csv"
+$CsvBFIP    = Join-Path $OutDir "bruteforce_indicators.csv"
+$AnyDeskLog = Join-Path $OutDir "anydesk_tail.txt"
+$TeamVLog   = Join-Path $OutDir "teamviewer_tail.txt"
+
+"=== Forensic Backup & Access Scan ==="              | Out-File $ReportTxt
+"Date: $(Get-Date)"                                   | Out-File $ReportTxt -Append
+"Host: $env:COMPUTERNAME | User: $env:USERNAME"       | Out-File $ReportTxt -Append
+"Drives: $($Drives -join ', ')"                       | Out-File $ReportTxt -Append
+"LookbackDays: $LookbackDays | MinSizeMB: $MinSizeMB" | Out-File $ReportTxt -Append
+"Output dir: $OutDir"                                 | Out-File $ReportTxt -Append
+"---------------------------------------------------------------------"        | Out-File $ReportTxt -Append
+
+# ---------------------------- Helpers -----------------------------------------
+function Out-AppendText([string]$text) {
+    $text | Out-File $ReportTxt -Append
+}
+
+function Get-UninstallEntries {
+    $roots = @(
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+    foreach ($r in $roots) {
+        try {
+            Get-ItemProperty $r -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName } |
+            Select-Object DisplayName, DisplayVersion, Publisher, InstallDate
+        } catch { }
+    }
+}
+
+$Since    = (Get-Date).AddDays(-$LookbackDays)
+$minBytes = $MinSizeMB * 1MB
+
+# ------------------ 1) Backup candidates (visible + hidden) -------------------
+Out-AppendText "`n[1] Scanning for backup-like files (including hidden/system)..."
+
+# Common backup-related extensions and keywords
+$extensions = @(
+    "*.bak","*.zip","*.rar","*.7z","*.tar","*.gz","*.tgz","*.iso",
+    "*.vhd","*.vhdx","*.wim","*.gho","*.bkf","*.qbb","*.acr","*.adi"
+)
+# Spanish keywords included because of the environment (respald=copia de respaldo)
+$keywordRegex = '(backup|bkp|bkup|respald|copia|sync|export|dump|snapshot|veeam|acronis|macrium|easeus|duplicati|aomei)'
+
+# Collect files by extension
+$filesByExt = foreach ($d in $Drives) {
+    foreach ($ext in $extensions) {
+        try {
+            Get-ChildItem -Path $d -Include $ext -Recurse -Force -ErrorAction SilentlyContinue
+        } catch { }
+    }
+}
+
+# Also collect files whose name or path contains suspicious keywords
+$filesByName = foreach ($d in $Drives) {
+    try {
+        Get-ChildItem -Path $d -Recurse -Force -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match $keywordRegex -or $_.DirectoryName -match $keywordRegex }
+    } catch { }
+}
+
+$files = @($filesByExt + $filesByName) |
+         Where-Object { $_ -and -not $_.PSIsContainer } |
+         Sort-Object FullName -Unique |
+         Where-Object { $_.Length -ge $minBytes }
+
+$backups = $files | ForEach-Object {
+    [PSCustomObject]@{
+        FullName      = $_.FullName
+        SizeMB        = [math]::Round($_.Length/1MB,2)
+        LastWriteTime = $_.LastWriteTime
+        Attributes    = $_.Attributes
+        IsHidden      = [bool]($_.Attributes -band [IO.FileAttributes]::Hidden)
+        IsSystem      = [bool]($_.Attributes -band [IO.FileAttributes]::System)
+    }
+}
+
+$backups | Sort-Object LastWriteTime -Descending | Export-Csv -NoTypeInformation -Path $CsvBackups
+
+$recent = $backups | Sort-Object LastWriteTime -Descending | Select-Object -First $TopNRecent
+Out-AppendText "Found $($backups.Count) candidate files. Top $TopNRecent most recent:"
+$recent | Format-Table LastWriteTime,SizeMB,Attributes,FullName -AutoSize | Out-String | Out-AppendText
+
+# ---------- 2) Hidden/System files with suspicious names (under Users) --------
+Out-AppendText "`n[2] Hidden/System suspicious files under user profiles..."
+$suspName = $keywordRegex
+$usersRoot = "C:\Users"
+
+$hidden = @()
+try {
+    $hidden = Get-ChildItem -Path $usersRoot -Recurse -Force -File -ErrorAction SilentlyContinue |
+              Where-Object { (($_.Attributes -band [IO.FileAttributes]::Hidden) -or ($_.Attributes -band [IO.FileAttributes]::System)) } |
+              Where-Object { $_.Name -match $suspName -or $_.DirectoryName -match $suspName } |
+              Select-Object FullName, @{n="SizeMB";e={[math]::Round($_.Length/1MB,2)}}, LastWriteTime, Attributes
+} catch { }
+
+$hidden | Export-Csv -NoTypeInformation -Path $CsvHidden
+Out-AppendText "Hidden/System suspicious files: $($hidden.Count) exported to CSV."
+
+# ---------- 3) Alternate Data Streams (ADS) in suspicious folders -------------
+Out-AppendText "`n[3] Checking for ADS (alternate data streams) in suspicious folders..."
+
+$adsRows = @()
+$suspFolders = @("C:\Backup","D:\Backup","C:\Temp","C:\ProgramData","C:\Users\Public") +
+               ($backups | Select-Object -ExpandProperty FullName | ForEach-Object { Split-Path $_ -Parent } | Sort-Object -Unique)
+
+foreach ($folder in $suspFolders | Sort-Object -Unique) {
+    if (-not (Test-Path $folder)) { continue }
+    try {
+        Get-ChildItem -Path $folder -Recurse -Force -File -ErrorAction SilentlyContinue | ForEach-Object {
+            try {
+                $streams = Get-Item -LiteralPath $_.FullName -Stream * -ErrorAction SilentlyContinue
+                foreach ($s in $streams) {
+                    if ($s.Stream -and $s.Stream -ne ':$DATA') {
+                        $adsRows += [PSCustomObject]@{
+                            File      = $_.FullName
+                            Stream    = $s.Stream
+                            Length    = $s.Length
+                            LastWrite = $_.LastWriteTime
+                        }
+                    }
+                }
+            } catch { }
+        }
+    } catch { }
+}
+
+$adsRows | Export-Csv -NoTypeInformation -Path $CsvADS
+Out-AppendText "ADS entries found: $($adsRows.Count)."
+
+# -------------------------- 4) Shadow Copies ---------------------------------
+Out-AppendText "`n[4] Shadow Copies (vssadmin list shadows)..."
+try {
+    (vssadmin list shadows) 2>&1 | Out-File -Append $ReportTxt
+} catch {
+    Out-AppendText "vssadmin failed: $($_.Exception.Message)"
+}
+
+# ---------- 5) Installed backup/sync/cloud software (Uninstall registry) ------
+Out-AppendText "`n[5] Installed backup/sync/cloud software (from Uninstall registry)..."
+$bkVendors = '(backup|veeam|acronis|macrium|easeus|duplicati|aomei|backblaze|crashplan|onedrive|google drive|dropbox|idrive|syncthing)'
+$apps = Get-UninstallEntries | Where-Object { $_.DisplayName -match $bkVendors } | Sort-Object DisplayName
+
+if ($apps) {
+    $apps | Format-Table DisplayName,DisplayVersion,Publisher,InstallDate -AutoSize | Out-String | Out-AppendText
+} else {
+    Out-AppendText "No matching backup/sync/cloud software entries found."
+}
+
+# ------------- 6) Scheduled tasks & services with suspicious keywords ---------
+Out-AppendText "`n[6] Scheduled tasks (schtasks) with suspicious keywords..."
+try {
+    $tasksRaw = schtasks /query /fo csv /v 2>$null | ConvertFrom-Csv
+    $susTasks = $tasksRaw | Where-Object { $_."Task To Run" -match $keywordRegex -or $_."TaskName" -match $keywordRegex }
+    $susTasks | Export-Csv -NoTypeInformation -Path $CsvTasks
+    Out-AppendText "Suspicious tasks: $($susTasks.Count)."
+} catch {
+    Out-AppendText "schtasks failed."
+}
+
+Out-AppendText "`n[6b] Services with suspicious keywords..."
+try {
+    $svcs = Get-Service | Where-Object { $_.DisplayName -match $keywordRegex -or $_.Name -match $keywordRegex }
+    $svcs | Select-Object Status,Name,DisplayName | Export-Csv -NoTypeInformation -Path $CsvSvcs
+    Out-AppendText "Suspicious services: $($svcs.Count)."
+} catch {
+    Out-AppendText "Get-Service failed."
+}
+
+# ---- 7) Logon analysis (Security log): success/fail + brute-force heuristic --
+Out-AppendText "`n[7] Logon analysis (Security log) since $Since ..."
+$prov = "Security"
+# 4624 = Successful logon, 4625 = Failed logon, 4740 = Account locked out
+$filter4624 = @{LogName=$prov; Id=4624; StartTime=$Since}
+$filter4625 = @{LogName=$prov; Id=4625; StartTime=$Since}
+$filter4740 = @{LogName=$prov; Id=4740; StartTime=$Since}
+
+# Successful logons (4624)
+try {
+    $succ = Get-WinEvent -FilterHashtable $filter4624 -ErrorAction SilentlyContinue | ForEach-Object {
+        $r = $_.Properties
+        [PSCustomObject]@{
+            TimeCreated    = $_.TimeCreated
+            TargetUser     = $r[5].Value
+            LogonType      = $r[8].Value
+            IpAddress      = $r[18].Value
+            ProcessName    = $r[11].Value
+        }
+    }
+    $succ | Export-Csv -NoTypeInformation -Path $CsvLogonsS
+
+    # Remote-related logon types: 3=Network, 8=NetworkCleartext, 10=RemoteInteractive (RDP)
+    $topRemote = $succ | Where-Object { $_.LogonType -in 3,8,10 -and $_.IpAddress } |
+                 Group-Object IpAddress | Sort-Object Count -Descending | Select-Object -First 10
+    Out-AppendText "Top remote IPs (successful):"
+    if ($topRemote) {
+        $topRemote | Format-Table Count,Name -AutoSize | Out-String | Out-AppendText
+    } else {
+        Out-AppendText "None."
+    }
+} catch {
+    Out-AppendText "4624 read failed."
+}
+
+# Failed logons (4625)
+try {
+    $fail = Get-WinEvent -FilterHashtable $filter4625 -ErrorAction SilentlyContinue | ForEach-Object {
+        $r = $_.Properties
+        [PSCustomObject]@{
+            TimeCreated = $_.TimeCreated
+            TargetUser  = $r[5].Value
+            IpAddress   = $r[19].Value
+            Status      = $r[7].Value
+            SubStatus   = $r[8].Value
+        }
+    }
+    $fail | Export-Csv -NoTypeInformation -Path $CsvLogonsF
+
+    $topFailIPs = $fail | Where-Object { $_.IpAddress } |
+                  Group-Object IpAddress | Sort-Object Count -Descending | Select-Object -First 10
+    Out-AppendText "Top failed IPs:"
+    if ($topFailIPs) {
+        $topFailIPs | Format-Table Count,Name -AutoSize | Out-String | Out-AppendText
+    } else {
+        Out-AppendText "None."
+    }
+} catch {
+    Out-AppendText "4625 read failed."
+}
+
+# Account lockouts (4740)
+try {
+    $lock = Get-WinEvent -FilterHashtable $filter4740 -ErrorAction SilentlyContinue | ForEach-Object {
+        [PSCustomObject]@{
+            TimeCreated = $_.TimeCreated
+            Message     = $_.Message
+        }
+    }
+    $lock | Export-Csv -NoTypeInformation -Path $CsvLockout
+    Out-AppendText "Account lockouts (4740): $($lock.Count)"
+} catch {
+    Out-AppendText "4740 read failed."
+}
+
+# Simple brute-force heuristic: >= 10 failures from the same IP for the same user within 5 minutes
+try {
+    $windowMin = 5
+    $threshold = 10
+    $bf = $fail | Group-Object TargetUser, IpAddress | ForEach-Object {
+        $events = $_.Group | Where-Object { $_.IpAddress } | Sort-Object TimeCreated
+        if (-not $events) { return }
+        for ($i=0; $i -lt $events.Count; $i++) {
+            $start = $events[$i].TimeCreated
+            $count = ($events | Where-Object { $_.TimeCreated -ge $start -and $_.TimeCreated -le $start.AddMinutes($windowMin) }).Count
+            if ($count -ge $threshold) {
+                [PSCustomObject]@{
+                    TargetUser = $_.Name.Split(',')[0]
+                    IpAddress  = $_.Name.Split(',')[1].Trim()
+                    WindowStart= $start
+                    FailCount  = $count
+                }
+                break
+            }
+        }
+    } | Where-Object { $_ }
+
+    $bf | Export-Csv -NoTypeInformation -Path $CsvBFIP
+    Out-AppendText "Brute-force indicators (>= $threshold fails in $windowMin min): $($bf.Count)"
+} catch {
+    Out-AppendText "Brute-force heuristic failed."
+}
+
+# ------------------- 8) AnyDesk / TeamViewer trace tails ----------------------
+Out-AppendText "`n[8] AnyDesk / TeamViewer traces (recent tail)..."
+
+# AnyDesk typical paths
+$adPaths = @(
+  "$env:ProgramData\AnyDesk\ad_svc.trace",
+  "$env:APPDATA\AnyDesk\ad.trace",
+  "$env:ProgramData\AnyDesk\ad.trace"
+)
+# TeamViewer typical paths
+$tvPaths = @(
+  "$env:ProgramFiles\TeamViewer\TeamViewer*_Logfile.log",
+  "$env:ProgramData\TeamViewer\*.log"
+)
+
+try {
+    $adFound = foreach ($p in $adPaths) { Get-ChildItem -Path $p -ErrorAction SilentlyContinue }
+    if ($adFound -and $adFound.Count -gt 0) {
+        "== AnyDesk last 200 lines ==" | Out-File $AnyDeskLog
+        foreach ($f in $adFound) {
+            Get-Content $f.FullName -Tail 200 | Out-File $AnyDeskLog -Append
+        }
+        Out-AppendText "AnyDesk logs saved: $AnyDeskLog"
+    } else {
+        Out-AppendText "AnyDesk logs not found."
+    }
+} catch {
+    Out-AppendText "AnyDesk check failed."
+}
+
+try {
+    $tvFound = foreach ($p in $tvPaths) { Get-ChildItem -Path $p -ErrorAction SilentlyContinue }
+    if ($tvFound -and $tvFound.Count -gt 0) {
+        "== TeamViewer last 200 lines ==" | Out-File $TeamVLog
+        foreach ($f in $tvFound) {
+            Get-Content $f.FullName -Tail 200 | Out-File $TeamVLog -Append
+        }
+        Out-AppendText "TeamViewer logs saved: $TeamVLog"
+    } else {
+        Out-AppendText "TeamViewer logs not found."
+    }
+} catch {
+    Out-AppendText "TeamViewer check failed."
+}
+
+# ------------------------------- Final notes ----------------------------------
+Out-AppendText "`n[9] Notes:"
+Out-AppendText "- Review backup_candidates.csv for WHEN backups were written (LastWriteTime) and sizes."
+Out-AppendText "- Check hidden_suspicious.csv and ads_streams.csv for concealed artifacts (hidden/system/ADS)."
+Out-AppendText "- Correlate logons_failed.csv and bruteforce_indicators.csv near backup write times."
+Out-AppendText "- Inspect anydesk_tail.txt / teamviewer_tail.txt for sessions aligning with backup timestamps."
+Out-AppendText "`nReport complete. All outputs in: $OutDir"
