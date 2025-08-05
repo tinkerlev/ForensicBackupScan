@@ -2,52 +2,34 @@
 
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue?logo=powershell)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey?logo=windows)
-![License](https://img.shields.io/badge/License-MIT-green)
+![License](https://img.shields.io/badge/License-Authorized%20Use%20Only-orange)
 ![Status](https://img.shields.io/badge/Status-Stable-success)
 
 ## 📌 Overview
 
-**ForensicBackupScan.ps1** is an advanced Windows PowerShell script for conducting **forensic-level backup and access scans**. It is designed for incident response, security audits, and digital forensics investigations.
+**ForensicBackupScan.ps1** is a Windows PowerShell script designed for **authorized forensic scans** and **security investigations**. It’s here to help you uncover backups, hidden files, remote access traces, and unusual logins — so you can act fast and stay safe.
 
-The script identifies backup artifacts (visible, hidden, or with Alternate Data Streams), checks for installed backup/sync software, lists shadow copies, analyzes logons for unusual activity (including brute-force attempts), and extracts recent traces from AnyDesk and TeamViewer.
+We believe in keeping our work **ethical** and **positive** — let’s always stay on the right side, with good spirit and good intentions.
 
 ---
 
-## ✨ Key Features
+## ✨ What It Does
 
-* **Backup Detection**
-
-  * Scans for files with backup-related extensions and suspicious keywords
-  * Detects hidden and system-marked backup files
-  * Identifies Alternate Data Streams (ADS)
-* **Software & Configuration Inspection**
-
-  * Lists installed backup/sync/cloud applications from registry
-  * Detects suspicious scheduled tasks and services
-* **Logon Event Analysis**
-
-  * Extracts successful, failed, and locked-out logons
-  * Lists top remote IP addresses
-  * Detects brute-force indicators (≥10 failed logins in ≤5 min)
-* **Shadow Copy Enumeration**
-
-  * Lists available shadow copies using `vssadmin`
-* **Remote Access Traces**
-
-  * Retrieves last 200 lines from AnyDesk and TeamViewer logs (if present)
-* **Comprehensive Reporting**
-
-  * CSV and TXT reports with clear structure
-  * Timestamped output directory on Desktop
+* **Finds Backup Files** – visible, hidden, or even with Alternate Data Streams (ADS)
+* **Lists Installed Backup/Sync Software**
+* **Checks for Shadow Copies**
+* **Analyzes Logons** – highlights unusual activity and brute-force attempts
+* **Extracts Remote Access Traces** – AnyDesk & TeamViewer logs
+* **Generates Full Reports** – CSV and TXT, saved neatly to your Desktop
 
 ---
 
 ## 🛠 Requirements
 
-* **OS:** Windows 10/11 or Windows Server 2016+
-* **PowerShell:** Version 5.1+ or PowerShell Core
-* **Privileges:** Must be run as Administrator
-* **Execution Policy:**
+* Windows 10/11 or Windows Server 2016+
+* PowerShell 5.1+ or PowerShell Core
+* Administrator rights
+* Execution Policy:
 
   ```powershell
   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -55,60 +37,58 @@ The script identifies backup artifacts (visible, hidden, or with Alternate Data 
 
 ---
 
-## 🚀 Usage
+## 🚀 How to Use
 
-1. **Clone or Download** this repository.
-2. Open **PowerShell as Administrator**.
-3. Navigate to the script directory:
+1. Download or clone this repository.
+2. Open PowerShell as Administrator.
+3. Navigate to the script folder:
 
    ```powershell
    cd "C:\Path\To\Script"
    ```
-4. Run the script with optional parameters:
+4. Run it:
 
    ```powershell
    .\ForensicBackupScan.ps1 -LookbackDays 14 -MinSizeMB 30 -Drives C:\,D:\ -TopNRecent 80
    ```
 
-### Parameters
+**Parameters:**
 
-| Parameter       | Description                                                      |
-| --------------- | ---------------------------------------------------------------- |
-| `-LookbackDays` | Days back to scan event logs (default: 30)                       |
-| `-MinSizeMB`    | Minimum file size in MB for backup candidates (default: 20)      |
-| `-Drives`       | Drives to scan (default: C:, D:, E:)                             |
-| `-TopNRecent`   | Number of most recent items to display in summary (default: 100) |
+| Name            | Purpose                                                   |
+| --------------- | --------------------------------------------------------- |
+| `-LookbackDays` | Days back to check event logs (default: 30)               |
+| `-MinSizeMB`    | Minimum file size to consider (default: 20MB)             |
+| `-Drives`       | Drives to scan (default: C:, D:, E:)                      |
+| `-TopNRecent`   | How many recent results to show in summary (default: 100) |
 
 ---
 
-## 📂 Output Structure
+## 📂 Output
 
-When complete, the script creates a folder on the Desktop:
+Creates a folder on your Desktop like:
 
 ```
 ForensicReport_YYYYMMDD_HHMMSS
 ```
 
-Inside you’ll find:
+Inside:
 
-| File                        | Description                                  |
-| --------------------------- | -------------------------------------------- |
-| `Report.txt`                | Main text summary of findings                |
-| `backup_candidates.csv`     | Detected backup-like files                   |
-| `hidden_suspicious.csv`     | Hidden/system backup-related files           |
-| `ads_streams.csv`           | Alternate Data Streams found                 |
-| `scheduled_tasks.csv`       | Scheduled tasks with suspicious keywords     |
-| `services_suspect.csv`      | Services with suspicious keywords            |
-| `logons_success.csv`        | Successful logon events                      |
-| `logons_failed.csv`         | Failed logon events                          |
-| `logons_lockouts.csv`       | Account lockout events                       |
-| `bruteforce_indicators.csv` | Brute-force login patterns                   |
-| `anydesk_tail.txt`          | Last 200 lines of AnyDesk logs (if found)    |
-| `teamviewer_tail.txt`       | Last 200 lines of TeamViewer logs (if found) |
+* `Report.txt` – Main summary
+* `backup_candidates.csv` – Backup files found
+* `hidden_suspicious.csv` – Hidden/system suspicious files
+* `ads_streams.csv` – Alternate Data Streams
+* `scheduled_tasks.csv` – Suspicious scheduled tasks
+* `services_suspect.csv` – Suspicious services
+* `logons_success.csv` – Successful logons
+* `logons_failed.csv` – Failed logons
+* `logons_lockouts.csv` – Lockouts
+* `bruteforce_indicators.csv` – Brute-force patterns
+* `anydesk_tail.txt` – Last AnyDesk log lines
+* `teamviewer_tail.txt` – Last TeamViewer log lines
 
 ---
 
-## 🔍 Example Output (Report.txt excerpt)
+## 🔍 Example Output
 
 ```
 === Forensic Backup & Access Scan ===
@@ -117,34 +97,16 @@ Host: WIN10LAB | User: Admin
 Drives: C:\, D:\
 LookbackDays: 14 | MinSizeMB: 30
 Output dir: C:\Users\Admin\Desktop\ForensicReport_20250805_103000
----------------------------------------------------------------------
-
-[1] Scanning for backup-like files (including hidden/system)...
+...
 Found 32 candidate files. Top 5 most recent:
-LastWriteTime        SizeMB Attributes FullName
--------------        ------ ---------- --------
-2025-08-04 23:15:10  250.34 Archive    C:\Backup\full_backup_2025.zip
-...
-
-[7] Logon analysis (Security log) since 7/22/2025 ...
-Top failed IPs:
-Count Name
------ ----
-15    192.168.1.45
-12    185.33.55.22
-...
+2025-08-04 23:15:10  250.34MB  C:\Backup\full_backup_2025.zip
 ```
 
 ---
 
-## ⚠️ Disclaimer
+## ⚠️ Stay Ethical
 
-This tool is intended for **authorized forensic and security assessments** only.
-Running it without consent may violate laws or regulations.
-Use responsibly.
+Use this tool **only** when you have proper permission. Keep it clean, keep it legal, and keep the good energy.
 
----
-
-## 📜 License
-
-[MIT License](LICENSE)
+**Created by:** Eliran Loai Deeb
+[LinkedIn](https://www.linkedin.com/in/loai-deeb/)
